@@ -45,6 +45,7 @@ import os
 import sys
 from urllib.parse import urlsplit
 
+from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from werkzeug.security import generate_password_hash
@@ -97,11 +98,17 @@ def _assert_distinct(prod_uri: str, dev_uri: str) -> None:
             f"Refusing to run: target host {dev_host!r} is not local.\n"
             "This script is only intended to populate a local development database."
         )
-    if urlsplit(dev_uri.replace("mongodb://", "http://", 1)).port != 27018:
-        sys.exit("Refusing to run: DEV_MONGO_URI must use the shared local port 27018.")
+    expected_port = int(os.environ.get("DEV_MONGO_PORT", "27018"))
+    if urlsplit(dev_uri.replace("mongodb://", "http://", 1)).port != expected_port:
+        sys.exit(
+            "Refusing to run: DEV_MONGO_URI must use the local development port "
+            f"{expected_port}."
+        )
 
 
-def _copy_collection(source, target, name: str, transform=None, limit=None, sort=None) -> int:
+def _copy_collection(
+    source, target, name: str, transform=None, limit=None, sort=None
+) -> int:
     """Stream a collection into the target in batches.
 
     Documents are inserted in batches rather than accumulated and written once,
@@ -179,6 +186,7 @@ def _copy_photo_metadata(source, target, dry_run: bool) -> int:
 
 
 def main() -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",
@@ -193,7 +201,9 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
-    prod_uri = os.environ.get("PROD_MONGO_URI", "").strip()
+    prod_uri = (
+        os.environ.get("PROD_MONGO_URI") or os.environ.get("MONGO_URI", "")
+    ).strip()
     dev_uri = os.environ.get("DEV_MONGO_URI", "").strip()
     if not prod_uri or not dev_uri:
         print(
@@ -250,7 +260,11 @@ def main() -> int:
         # --log-limit trades that fidelity for a faster copy.
         log_total = source["user_logs"].estimated_document_count()
         if arguments.dry_run:
-            log_count = min(arguments.log_limit, log_total) if arguments.log_limit else log_total
+            log_count = (
+                min(arguments.log_limit, log_total)
+                if arguments.log_limit
+                else log_total
+            )
         else:
             log_count = _copy_collection(
                 source,
@@ -278,14 +292,19 @@ def main() -> int:
             for index in source[name].list_indexes():
                 if index["name"] == "_id_":
                     continue
-                options = {key: value for key, value in index.items()
-                           if key not in {"v", "key", "ns"}}
+                options = {
+                    key: value
+                    for key, value in index.items()
+                    if key not in {"v", "key", "ns"}
+                }
                 target[name].create_index(list(index["key"].items()), **options)
         print("\nIndexes created.")
 
         print(f"\nDevelopment database ready: {total + log_count} documents.")
         print(f"Every user's password is now {DEV_PASSWORD!r}.")
-        print("Photo bytes were not copied; photo routes return an empty image locally.")
+        print(
+            "Photo bytes were not copied; photo routes return an empty image locally."
+        )
         return 0
     except PyMongoError as error:
         print(f"MongoDB error: {error}", file=sys.stderr)

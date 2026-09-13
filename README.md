@@ -33,11 +33,22 @@ loopback and only attach trusted local app containers to its network.
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-export PROD_MONGO_URI='mongodb://<read-only-user>:<password>@<host>:27017/'
-export DEV_MONGO_URI='mongodb://127.0.0.1:27018/'
+cp .env.example .env
+# Edit .env with the read-only production URI. Never commit .env.
 .venv/bin/python seed_merchant.py --dry-run
 .venv/bin/python seed_merchant.py
 ```
+
+The script loads `.env` automatically. `PROD_MONGO_URI` is preferred; `MONGO_URI`
+is accepted as a fallback for applications that already use that name. The
+source account must be read-only. The target remains the local MongoDB service.
+If port 27018 is already in use, set `MONGO_HOST_PORT` and `DEV_MONGO_PORT` to
+the same available localhost port and update `DEV_MONGO_URI` accordingly.
+
+Photo metadata is copied with its original IDs, while `photos.chunks` is never
+read or copied. This preserves UI references to images that can be loaded later
+without transferring the production image bytes. The copied GridFS file records
+have a zero length so missing chunks do not produce a corrupt partial response.
 
 The volume belongs to the `shared-dev-mongo` Compose project, so moving an app
 repository or stopping its container does not remove it. Back up the local
