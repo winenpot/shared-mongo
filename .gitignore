@@ -1,0 +1,7 @@
+.env
+.venv/
+snapshots/
+*.archive
+*.bson
+*.metadata.json
+__pycache__/
